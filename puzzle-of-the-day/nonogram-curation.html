@@ -1,0 +1,204 @@
+<!DOCTYPE html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nonogram picture curation</title>
+<style>
+body{margin:0;font:16px/1.4 system-ui,sans-serif;background:#0e1a2f;color:#f4efe3;padding:14px}
+h1{font-size:20px;margin:0 0 4px}p{margin:4px 0 10px;color:#b8c2d6;font-size:14px}
+.bar{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.chip,.btn{border:1px solid #3a4d73;background:#18284a;color:#f4efe3;border-radius:16px;padding:6px 12px;font-size:14px;cursor:pointer}
+.chip.on{background:#c8102e;border-color:#c8102e}
+.btn{border-radius:8px}.btn.main{background:#c8102e;border-color:#c8102e;font-weight:600}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:10px}
+.card{position:relative;background:#18284a;border:2px solid #2c3f68;border-radius:10px;padding:8px;display:flex;flex-direction:column;align-items:center;cursor:pointer}
+.card.off{opacity:.35;border-style:dashed}
+.card canvas{image-rendering:pixelated;border-radius:4px;max-width:100%}
+.card input{position:absolute;top:8px;left:8px;width:20px;height:20px}
+.t{font-weight:600;margin-top:6px;text-align:center;font-size:14px}.m{font-size:12px;color:#b8c2d6;text-align:center}.warn{color:#f2b84b}
+#out{display:none;width:100%;height:160px;margin-top:10px;background:#07101f;color:#f4efe3;border:1px solid #3a4d73;border-radius:8px;font:12px monospace}
+#count{font-weight:600;margin:8px 0}
+</style></head><body>
+<h1>Nonogram pictures: curate</h1>
+<p>Everything is kept by default. Untick the ones you don't want. Emoji silhouettes are drawn by your own device, so they are fixed into the final app once you've chosen. "Needs guessing" means line logic alone can't solve it, which is poor for a class.</p>
+<div class="bar" id="fsrc"></div><div class="bar" id="fsize"></div><div class="bar" id="fshow"></div>
+<div class="bar"><button class="btn" id="rmGuess">Remove all "needs guessing"</button><button class="btn" id="reset">Keep everything</button><button class="btn main" id="exp">Copy kept list</button></div>
+<div id="count"></div><div id="msg" style="color:#f2b84b;font-size:14px"></div>
+<textarea id="out" readonly></textarea>
+<div id="grid"></div>
+<script>
+// ---------- pure logic (data + solver) ----------
+function clues(line){const c=[];let n=0;for(const v of line){if(v){n++}else if(n){c.push(n);n=0}}if(n)c.push(n);return c}
+function solveLine(clue,line){
+  const n=line.length,canB=Array(n).fill(false),canW=Array(n).fill(false),cur=Array(n).fill(0);let any=false;
+  function rec(ci,pos){
+    if(ci===clue.length){
+      for(let i=pos;i<n;i++) if(line[i]===1) return;
+      for(let i=pos;i<n;i++) cur[i]=0;
+      any=true;for(let i=0;i<n;i++){if(cur[i])canB[i]=true;else canW[i]=true}return;}
+    const len=clue[ci];
+    for(let s=pos;s+len<=n;s++){
+      if(s>pos&&line[s-1]===1)break;
+      let ok=true;
+      for(let i=s;i<s+len;i++) if(line[i]===0){ok=false;break}
+      if(ok&&s+len<n&&line[s+len]===1)ok=false;
+      if(ok){
+        for(let i=pos;i<s;i++)cur[i]=0;
+        for(let i=s;i<s+len;i++)cur[i]=1;
+        if(s+len<n)cur[s+len]=0;
+        rec(ci+1,s+len+1);
+      }
+    }
+  }
+  rec(0,0);
+  if(!any)return null;
+  return line.map((v,i)=>v!==-1?v:(canB[i]&&!canW[i]?1:(!canB[i]&&canW[i]?0:-1)));
+}
+// returns true if solvable by line logic alone (so unique and fair, no guessing)
+function lineSolvable(g){
+  const R=g.length,C=g[0].length;
+  const rc=g.map(r=>clues(r));
+  const cc=[];for(let c=0;c<C;c++)cc.push(clues(g.map(r=>r[c])));
+  const k=Array.from({length:R},()=>Array(C).fill(-1));
+  let ch=true;
+  while(ch){ch=false;
+    for(let r=0;r<R;r++){const s=solveLine(rc[r],k[r]);if(!s)return false;for(let c=0;c<C;c++)if(s[c]!==k[r][c]){k[r][c]=s[c];ch=true}}
+    for(let c=0;c<C;c++){const col=k.map(r=>r[c]);const s=solveLine(cc[c],col);if(!s)return false;for(let r=0;r<R;r++)if(s[r]!==k[r][c]){k[r][c]=s[r];ch=true}}
+  }
+  return k.every(r=>r.every(v=>v!==-1));
+}
+const toGrid=rows=>rows.map(r=>[...r].map(ch=>ch==='#'?1:0));
+const PICS=[];
+function P(name,theme,rows){PICS.push({name,theme,src:'Drawn',size:rows.length,rows});}
+// ---- 5x5 ----
+P('Heart','Shapes',['.#.#.','#####','#####','.###.','..#..']);
+P('House','Everyday',['..#..','.###.','#####','##.##','##.##']);
+P('Tree','Nature',['..#..','.###.','#####','..#..','..#..']);
+P('Arrow','Shapes',['..#..','.###.','#.#.#','..#..','..#..']);
+P('Star','Shapes',['..#..','#####','.###.','.#.#.','#...#']);
+P('Smiley','Faces',['.#.#.','.#.#.','.....','#...#','.###.']);
+P('Plus','Maths',['..#..','..#..','#####','..#..','..#..']);
+P('Diamond','Shapes',['..#..','.###.','#####','.###.','..#..']);
+P('Umbrella','Everyday',['.###.','#####','..#..','..#..','.##..']);
+P('Cup','Everyday',['#####','#####','#####','.###.','#####']);
+// digits as 5x5
+const D={0:['.###.','#...#','#...#','#...#','.###.'],1:['..#..','.##..','..#..','..#..','.###.'],2:['.###.','#...#','..##.','.#...','#####'],3:['####.','....#','.###.','....#','####.'],4:['#..#.','#..#.','#####','...#.','...#.'],5:['#####','#....','####.','....#','####.'],6:['.###.','#....','####.','#...#','.###.'],7:['#####','....#','...#.','..#..','..#..'],8:['.###.','#...#','.###.','#...#','.###.'],9:['.###.','#...#','.####','....#','.###.']};
+for(let i=0;i<10;i++)P('Number '+i,'Numbers',D[i]);
+// ---- 10x10 ----
+P('Pi','Maths',['..........','.########.','.########.','...#..#...','...#..#...','...#..#...','...#..#...','...#..##..','...#...#..','..........']);
+P('Sigma','Maths',['.########.','.##.......','..##......','...##.....','....##....','...##.....','..##......','.##.......','.########.','..........']);
+P('Square root','Maths',['......####','......####','......##..','......##..','#.....##..','##....##..','.##...##..','..##..##..','...####...','....##....']);
+P('Right-angled triangle','Maths',['#.........','##........','###.......','####......','#####.....','######....','#######...','########..','#########.','##########']);
+P('Times','Maths',['##......##','###....###','.###..###.','..######..','...####...','...####...','..######..','.###..###.','###....###','##......##']);
+P('Plus (big)','Maths',['...####...','...####...','...####...','##########','##########','##########','##########','...####...','...####...','...####...']);
+P('Hourglass','Everyday',['##########','.########.','..######..','...####...','....##....','....##....','...####...','..######..','.########.','##########']);
+P('Disc','Shapes',['...####...','.########.','.########.','##########','##########','##########','##########','.########.','.########.','...####...']);
+P('Heart (big)','Shapes',['..........','.###..###.','##########','##########','##########','.########.','..######..','...####...','....##....','..........']);
+P('House (big)','Everyday',['....##....','...####...','..######..','.########.','##########','.########.','.###..###.','.###..###.','.###..###.','.###..###.']);
+P('Tree (big)','Nature',['....##....','...####...','..######..','...####...','..######..','.########.','##########','....##....','....##....','....##....']);
+P('Mushroom','Nature',['...####...','.########.','##.####.##','##########','##########','...####...','....##....','....##....','....##....','...####...']);
+P('Pawn','Chess',['....##....','...####...','...####...','....##....','...####...','....##....','...####...','..######..','.########.','.########.']);
+P('Rook','Chess',['.##.##.##.','.########.','..######..','..######..','..######..','..######..','..######..','..######..','.########.','.########.']);
+P('King','Chess',['....##....','..######..','....##....','...####...','..######..','...####...','...####...','..######..','.########.','.########.']);
+P('Bell','Everyday',['....##....','...####...','..######..','..######..','..######..','.########.','.########.','##########','..........','....##....']);
+P('Trophy','Everyday',['##########','#.######.#','#.######.#','.########.','..######..','...####...','....##....','....##....','..######..','..######..']);
+P('Light bulb','Everyday',['...####...','..######..','.########.','.########.','.########.','..######..','...####...','...####...','...####...','....##....']);
+P('Kite','Everyday',['....##....','...####...','..######..','.########.','..######..','...####...','....##....','.....#....','....#.....','.....#....']);
+P('Sailing boat','Transport',['.....#....','.....##...','.....###..','.....####.','.....#####','.....#....','##########','.########.','..######..','..........']);
+P('Rocket','Transport',['....##....','...####...','..######..','..######..','..######..','..######..','.########.','##.####.##','#..####..#','....##....']);
+P('Double-decker bus','Transport',['..........','.########.','.#.#.#.#.#','.########.','.#.#.#.#.#','.########.','.########.','.########.','..##..##..','..........']);
+P('Lighthouse','UK',['....##....','...####...','...#..#...','....##....','...####...','...####...','..######..','..######..','.########.','.########.']);
+P('Post box','UK',['...####...','..######..','.########.','.########.','.#......#.','.########.','.########.','.########.','.########.','..##..##..']);
+P('Umbrella (big)','UK',['....##....','..######..','.########.','##########','#.##.##.##','....#.....','....#.....','....#.....','....#..#..','.....##...']);
+P('Anchor','Transport',['....##....','...#..#...','....##....','.########.','....##....','....##....','#...##...#','##..##..##','.########.','..######..']);
+P('Cat face','Animals',['#........#','##......##','##########','##########','#.##..##.#','##########','####..####','.########.','..######..','..........']);
+P('Key','Everyday',['.####.....','##..##....','##..##....','.####.....','..##......','..##......','..###.....','..##......','..###.....','..##......']);
+P('Arrow right','Shapes',['.....#....','.....##...','.....###..','##########','##########','.....###..','.....##...','.....#....','..........','..........']);
+
+// ---------- UI ----------
+const EMOJI=[['🐢','Tortoise'],['🐘','Elephant'],['🐧','Penguin'],['🦆','Duck'],['🐟','Fish'],['🐙','Octopus'],['🦋','Butterfly'],['🐝','Bee'],['🐞','Ladybird'],['🐌','Snail'],['🦉','Owl'],['🐸','Frog'],['🐱','Cat'],['🐶','Dog'],['🐰','Rabbit'],['🐴','Horse'],['🐷','Pig'],['🐄','Cow'],['🐑','Sheep'],['🦀','Crab'],['🐳','Whale'],['🐬','Dolphin'],['🦔','Hedgehog'],['🐿️','Squirrel'],['🦊','Fox'],['🐻','Bear'],['🐓','Cockerel'],['🐍','Snake'],['🦒','Giraffe'],['🦈','Shark'],['🦇','Bat'],['🌳','Tree'],['🌲','Fir tree'],['🌵','Cactus'],['🌻','Sunflower'],['🌷','Tulip'],['🍄','Mushroom'],['🍎','Apple'],['🍐','Pear'],['🍌','Banana'],['🍒','Cherries'],['🍓','Strawberry'],['🍇','Grapes'],['🍍','Pineapple'],['🥕','Carrot'],['🍋','Lemon'],['🍦','Ice cream'],['🧁','Cupcake'],['🥐','Croissant'],['⭐','Star'],['❤️','Heart'],['🌙','Moon'],['☀️','Sun'],['☁️','Cloud'],['☂️','Umbrella'],['⚓','Anchor'],['🔔','Bell'],['🔑','Key'],['🏠','House'],['⛵','Sailing boat'],['🚲','Bicycle'],['🚌','Bus'],['✈️','Aeroplane'],['🚀','Rocket'],['🎈','Balloon'],['🎁','Present'],['👑','Crown'],['🎸','Guitar'],['🎺','Trumpet'],['🎻','Violin'],['⚽','Football'],['⏰','Alarm clock'],['🎩','Top hat'],['☕','Coffee cup'],['🫖','Teapot'],['👓','Glasses'],['📚','Books'],['✏️','Pencil'],['✂️','Scissors'],['🔨','Hammer'],['💡','Light bulb'],['🕯️','Candle'],['🏰','Castle'],['⛄','Snowman'],['🎄','Christmas tree'],['🧦','Sock'],['🪁','Kite'],['🪑','Chair'],['🛏️','Bed'],['🥁','Drum'],['🎃','Pumpkin'],['🦜','Parrot'],['🐪','Camel'],['🦢','Swan']];
+const SIZES=[10,15];
+function rasterise(emoji,N){
+  const S=300,cv=document.createElement('canvas');cv.width=cv.height=S;
+  const x=cv.getContext('2d',{willReadFrequently:true});
+  x.textAlign='center';x.textBaseline='middle';
+  x.font='240px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  x.fillText(emoji,S/2,S/2+8);
+  const d=x.getImageData(0,0,S,S).data;
+  let x0=S,y0=S,x1=-1,y1=-1;
+  for(let y=0;y<S;y++)for(let xx=0;xx<S;xx++)if(d[(y*S+xx)*4+3]>128){if(xx<x0)x0=xx;if(xx>x1)x1=xx;if(y<y0)y0=y;if(y>y1)y1=y}
+  if(x1<0)return null;
+  const w=x1-x0+1,h=y1-y0+1,side=Math.max(w,h),ox=x0-(side-w)/2,oy=y0-(side-h)/2,cs=side/N;
+  const rows=[];let filled=0;
+  for(let r=0;r<N;r++){let s='';for(let c=0;c<N;c++){
+    let on=0,tot=0;
+    for(let yy=Math.floor(oy+r*cs);yy<Math.floor(oy+(r+1)*cs);yy++)for(let xx=Math.floor(ox+c*cs);xx<Math.floor(ox+(c+1)*cs);xx++){
+      tot++;if(xx>=0&&yy>=0&&xx<S&&yy<S&&d[(yy*S+xx)*4+3]>128)on++}
+    const b=tot&&on/tot>=0.5;if(b)filled++;s+=b?'#':'.'}rows.push(s)}
+  const f=filled/(N*N);
+  if(f<0.25||f>0.85)return null;
+  return rows;
+}
+function buildAll(){
+  const all=PICS.map(p=>({...p}));
+  for(const [e,n] of EMOJI)for(const N of SIZES){
+    const rows=rasterise(e,N);
+    if(rows)all.push({name:n+' '+e,theme:'Emoji',src:'Emoji',size:N,rows,emoji:e});
+  }
+  for(const p of all){p.id=p.src+'|'+p.name+'|'+p.size;p.fair=lineSolvable(toGrid(p.rows))}
+  return all;
+}
+let ALL=[],keep={},filter={src:'All',size:'All',show:'All'};
+const LS='nonogramCuration1';
+function load(){try{keep=JSON.parse(localStorage.getItem(LS)||'{}')}catch(e){keep={}}}
+function save(){try{localStorage.setItem(LS,JSON.stringify(keep))}catch(e){}}
+const isKept=p=>keep[p.id]!==false;
+function thumb(p){
+  const cs=Math.floor(110/p.size),c=document.createElement('canvas');c.width=c.height=cs*p.size;
+  const x=c.getContext('2d');x.fillStyle='#f4efe3';x.fillRect(0,0,c.width,c.height);
+  x.fillStyle='#14233f';
+  p.rows.forEach((r,i)=>{[...r].forEach((ch,j)=>{if(ch==='#')x.fillRect(j*cs,i*cs,cs,cs)})});
+  return c;
+}
+function render(){
+  const g=document.getElementById('grid');g.innerHTML='';
+  let shown=0;
+  for(const p of ALL){
+    if(filter.src!=='All'&&p.src!==filter.src)continue;
+    if(filter.size!=='All'&&p.size!==+filter.size)continue;
+    if(filter.show==='Kept'&&!isKept(p))continue;
+    if(filter.show==='Removed'&&isKept(p))continue;
+    if(filter.show==='Guess'&&p.fair)continue;
+    shown++;
+    const d=document.createElement('label');d.className='card'+(isKept(p)?'':' off');
+    const cb=document.createElement('input');cb.type='checkbox';cb.checked=isKept(p);
+    cb.onchange=()=>{keep[p.id]=cb.checked;save();render()};
+    d.appendChild(thumb(p));
+    const t=document.createElement('div');t.className='t';t.textContent=p.name;
+    const m=document.createElement('div');m.className='m';m.textContent=p.size+'×'+p.size+' · '+p.theme+(p.fair?'':' · needs guessing');
+    if(!p.fair)m.classList.add('warn');
+    d.append(cb,t,m);g.appendChild(d);
+  }
+  const kept=ALL.filter(isKept).length;
+  document.getElementById('count').textContent='Keeping '+kept+' of '+ALL.length+' pictures ('+shown+' shown)';
+}
+function chips(id,opts,key){
+  const el=document.getElementById(id);
+  opts.forEach(([v,l])=>{const b=document.createElement('button');b.textContent=l;b.className='chip'+(filter[key]===v?' on':'');
+    b.onclick=()=>{filter[key]=v;[...el.children].forEach(c=>c.classList.remove('on'));b.classList.add('on');render()};el.appendChild(b)});
+}
+function exportKept(){
+  const out=ALL.filter(isKept).map(p=>'{n:'+JSON.stringify(p.name)+',t:'+JSON.stringify(p.theme)+(p.emoji?',e:'+JSON.stringify(p.emoji):'')+',g:'+JSON.stringify(p.rows.join('|'))+'}').join(',\n');
+  const ta=document.getElementById('out');ta.value=out;ta.style.display='block';ta.select();
+  try{navigator.clipboard.writeText(out).then(()=>msg('Copied '+ALL.filter(isKept).length+' pictures. Paste them into the chat.'),()=>msg('Select all in the box and copy.'))}catch(e){msg('Select all in the box and copy.')}
+}
+function msg(s){document.getElementById('msg').textContent=s}
+window.addEventListener('DOMContentLoaded',()=>{
+  load();ALL=buildAll();
+  chips('fsrc',[['All','All'],['Drawn','Drawn'],['Emoji','Emoji']],'src');
+  chips('fsize',[['All','Any size'],['5','5×5'],['10','10×10'],['15','15×15']],'size');
+  chips('fshow',[['All','All'],['Kept','Kept'],['Removed','Removed'],['Guess','Needs guessing']],'show');
+  document.getElementById('rmGuess').onclick=()=>{ALL.forEach(p=>{if(!p.fair)keep[p.id]=false});save();render()};
+  document.getElementById('reset').onclick=()=>{keep={};save();render()};
+  document.getElementById('exp').onclick=exportKept;
+  render();
+});
+
+</script></body></html>
